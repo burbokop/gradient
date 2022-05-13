@@ -10,5 +10,7 @@ ffmpeg-next = "5.0.3"
 sdl2 = "0.35.2"
 byte-slice-cast = "1.2.1"
 image = "0.24.1"
-serde = "1.0.131"
+serde = { version = "1.0", features = ["derive"] }
 toml = "0.5.9"
+itertools = "0.10.3"
+num = "0.4.0"

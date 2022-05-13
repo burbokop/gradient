@@ -1,7 +1,6 @@
 use std::{ops::{Sub, Mul}, marker::PhantomData};
 
 use byte_slice_cast::*;
-use ffmpeg::{option::Target, format::Output};
 
 pub trait PixLayout {
     type Pixel;
@@ -13,74 +12,73 @@ pub trait PixLayout {
 
     fn get_argb_u32(p: &Self::Pixel) -> u32;
     fn set_argb_u32(p: &mut Self::Pixel, argb: u32);
+
 }
 
 #[derive(Debug)]
-pub struct ArgbU32Layout<const a: usize, const r: usize, const g: usize, const b: usize> {
+pub struct ArgbU32Layout<const A: usize, const R: usize, const G: usize, const B: usize> {}
 
-}
-
-impl<const a: usize, const r: usize, const g: usize, const b: usize> PixLayout for ArgbU32Layout<a, r, g, b> {
+impl<const A: usize, const R: usize, const G: usize, const B: usize> PixLayout for ArgbU32Layout<A, R, G, B> {
     type Pixel = [u8; 4];
 
     #[inline]
-    fn a_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[a] }
+    fn a_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[A] }
     #[inline]
-    fn r_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[r] }
+    fn r_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[R] }
     #[inline]
-    fn g_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[g] }
+    fn g_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[G] }
     #[inline]
-    fn b_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[b] }
+    fn b_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[B] }
 
     #[inline]
     fn get_argb_u32(p: &Self::Pixel) -> u32 {
-        from_argb([p[a], p[r], p[g], p[b]])
+        from_argb([p[A], p[R], p[G], p[B]])
     }
 
     #[inline]
     fn set_argb_u32(p: &mut Self::Pixel, argb: u32) {
         let pp = to_argb(argb);
 
-        p[a] = pp[0];
-        p[r] = pp[1];
-        p[g] = pp[2];
-        p[b] = pp[3];
+        p[A] = pp[0];
+        p[R] = pp[1];
+        p[G] = pp[2];
+        p[B] = pp[3];
     }
 
 }
 
 #[derive(Debug)]
-pub struct RgbU24Layout<const r: usize, const g: usize, const b: usize> {}
+pub struct RgbU24Layout<const R: usize, const G: usize, const B: usize> {}
 
-impl<const r: usize, const g: usize, const b: usize> PixLayout for RgbU24Layout<r, g, b> {
+impl<const R: usize, const G: usize, const B: usize> PixLayout for RgbU24Layout<R, G, B> {
     type Pixel = [u8; 3];
 
     #[inline]
     fn a_u8(p: &mut Self::Pixel) -> &mut u8 {
-        &mut p[r]
+        &mut p[R]
     }
 
     #[inline]
-    fn r_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[r] }
+    fn r_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[R] }
 
     #[inline]
-    fn g_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[g] }
+    fn g_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[G] }
 
     #[inline]
-    fn b_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[b] }
+    fn b_u8(p: &mut Self::Pixel) -> &mut u8 { &mut p[B] }
 
     #[inline]
     fn get_argb_u32(p: &Self::Pixel) -> u32 {
-        from_argb([0xff, p[r], p[g], p[b]])
+        from_argb([0xff, p[R], p[G], p[B]])
     }
 
     #[inline]
     fn set_argb_u32(p: &mut Self::Pixel, argb: u32) {
         let pp = to_argb(argb);
 
-        p[r] = pp[1];
-        p[g] = pp[2];
-        p[b] = pp[3];
+        p[R] = pp[1];
+        p[G] = pp[2];
+        p[B] = pp[3];
     }
 }
 
@@ -266,7 +264,7 @@ mod tests {
     use super::BitmapRef;
 
     #[test]
-    fn test0() {
+    fn test_argb() {
         let mut data: &mut [u8] = &mut [0xff, 0x88, 0x44, 0x22, 0x1, 0x2, 0x3, 0x4];
 
         let mut btmp: BitmapRef<ArgbU32Layout<3, 2, 1, 0>> = BitmapRef::from_bytes(&mut data, 2, 1).unwrap();
