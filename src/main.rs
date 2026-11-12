@@ -5,11 +5,12 @@ use ffmpeg::media::Type;
 use ffmpeg::software::scaling::{context::Context, flag::Flags};
 use ffmpeg::subtitle::Bitmap;
 use ffmpeg::util::frame::video::Video;
-use gradient::bitmap::{BitmapRef, from_argb, to_argb, RgbU24Layout};
-use image::{ImageBuffer, GenericImageView};
+use gradient::bitmap::{from_argb, to_argb, BitmapRef, RgbU24Layout};
+use gradient::integrator::Integrator;
+use image::{GenericImageView, ImageBuffer};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
 use std::env;
 use std::fs::File;
 use std::hash::{Hash, Hasher};
@@ -21,9 +22,8 @@ use std::time::Instant;
 struct Cfg {
     pub index: u32,
     pub rate_n: i32,
-    pub rate_d: i32
+    pub rate_d: i32,
 }
-
 
 impl PartialEq for Cfg {
     fn eq(&self, other: &Self) -> bool {
@@ -31,9 +31,7 @@ impl PartialEq for Cfg {
     }
 }
 
-impl Eq for Cfg {
-    
-}
+impl Eq for Cfg {}
 
 impl PartialOrd for Cfg {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -48,13 +46,14 @@ impl Ord for Cfg {
 }
 
 fn load_cfg(path: &str) -> BTreeMap<String, Cfg> {
-    std::fs::read_to_string(path).map(|f|toml::from_str(f.as_str()).unwrap()).unwrap_or_default()
+    std::fs::read_to_string(path)
+        .map(|f| toml::from_str(f.as_str()).unwrap())
+        .unwrap_or_default()
 }
 
 fn save_cfg(path: &str, map: &BTreeMap<String, Cfg>) {
     std::fs::write(path, toml::to_string(map).unwrap()).unwrap()
 }
-
 
 fn mul_pixel_u32(p: u32, m: f64) -> u32 {
     from_argb(to_argb(p).map(|x| ((x as f64) * m) as u8))
@@ -76,9 +75,8 @@ fn discard_alpha(p: u32) -> u32 {
 
 fn avr_rgb(p: u32) -> u8 {
     let mut argb = to_argb(p);
-    ((argb[1] as u32 + argb[2] as u32 + argb[3] as u32) / 3) as u8    
+    ((argb[1] as u32 + argb[2] as u32 + argb[3] as u32) / 3) as u8
 }
-
 
 fn dif_mul(p1: u32, p0: u32, m: f64) -> u32 {
     let mut argb1 = to_argb(p1);
@@ -98,7 +96,6 @@ fn dif(p1: u32, p0: u32) -> u32 {
     from_argb(argb1)
 }
 
-
 fn mul_pixel_u32_rgb(p: u32, m: f64) -> u32 {
     let mut argb = to_argb(p);
     argb[1] = ((argb[1] as f64) * m) as u8;
@@ -107,22 +104,25 @@ fn mul_pixel_u32_rgb(p: u32, m: f64) -> u32 {
     from_argb(argb)
 }
 
-
-pub fn each_btmp_pair<'a>(prev: &mut BitmapRef<'a, RgbU24Layout<0, 1, 2>>, current: &mut BitmapRef<'a, RgbU24Layout<0, 1, 2>>, integrator: Integrator, frame_index: usize) {
+pub fn each_btmp_pair<'a>(
+    prev: &mut BitmapRef<'a, RgbU24Layout<0, 1, 2>>,
+    current: &mut BitmapRef<'a, RgbU24Layout<0, 1, 2>>,
+    integrator: &mut Integrator<f32, f32>,
+    frame_index: usize,
+) {
     prev.clone_by(current, |mut c, p| {
         c.set_argb_u32(dif(c.get_argb_u32(), p.get_argb_u32()))
         //*c = *p
     });
 
-    integrator.next()
+    integrator.next(10.);
 
     //let avr = current.iter_mut().map(|x| avr_rgb(x.get_argb_u32()) as u32).sum::<u32>() / current.width() as u32 / current.height() as u32;
-//
+    //
     //if avr == 0 {
     //    current.for_each_mut(|mut x| x.set_argb_u32(invert_rgb(x.get_argb_u32())));
     //}
 }
-
 
 fn main() -> Result<(), ffmpeg::Error> {
     ffmpeg::init().unwrap();
@@ -131,29 +131,39 @@ fn main() -> Result<(), ffmpeg::Error> {
 
     let cfg_path = "./out/videos.toml";
 
-
     if let Ok(mut ictx) = input(&input_path) {
+        let mut integrator = Integrator::new(0.9);
+
         let input = ictx
             .streams()
             .best(Type::Video)
             .ok_or(ffmpeg::Error::StreamNotFound)?;
 
-
         let mut cfg = load_cfg(cfg_path);
-        let video_index = cfg
-            .get(&input_path)
-            .map(|x| x.clone())
-            .unwrap_or(
-                cfg.iter()
-                    .map(|(_, b)| b).max().map(|x| Cfg { index: x.index + 1, rate_n: input.rate().numerator(), rate_d: input.rate().denominator() })
-                    .unwrap_or(Cfg { index: 0, rate_n: input.rate().numerator(), rate_d: input.rate().denominator() })
-                );
+        let video_index = cfg.get(&input_path).map(|x| x.clone()).unwrap_or(
+            cfg.iter()
+                .map(|(_, b)| b)
+                .max()
+                .map(|x| Cfg {
+                    index: x.index + 1,
+                    rate_n: input.rate().numerator(),
+                    rate_d: input.rate().denominator(),
+                })
+                .unwrap_or(Cfg {
+                    index: 0,
+                    rate_n: input.rate().numerator(),
+                    rate_d: input.rate().denominator(),
+                }),
+        );
 
         cfg.insert(input_path.clone(), video_index.clone());
-        
+
         save_cfg(cfg_path, &cfg);
-        
-        println!("starting processing video stream #{:0>4} (path: {})", video_index.index, input_path);
+
+        println!(
+            "starting processing video stream #{:0>4} (path: {})",
+            video_index.index, input_path
+        );
         println!("frame rate: {} ({})", input.rate(), input.avg_frame_rate());
 
         let video_stream_index = input.index();
@@ -174,48 +184,35 @@ fn main() -> Result<(), ffmpeg::Error> {
         let mut frame_index = 0;
 
         //let mut last_frame_data: &[u8]
-        
 
         let mut each_frame = |prev: &mut Option<Video>, current: &mut Video, frame_index: usize| {
             let cw = current.width() as usize;
             let ch = current.height() as usize;
 
-            let mut btmp = BitmapRef::from_bytes(
-                current.data_mut(0), 
-                cw,
-                ch
-            ).unwrap();
+            let mut btmp = BitmapRef::from_bytes(current.data_mut(0), cw, ch).unwrap();
 
             if let Some(v) = prev {
                 let w = v.width() as usize;
                 let h = v.height() as usize;
-    
-                let mut prev_btmp = BitmapRef::from_bytes(
-                    v.data_mut(0), 
-                    w,
-                    h
-                ).unwrap();
 
+                let mut prev_btmp = BitmapRef::from_bytes(v.data_mut(0), w, h).unwrap();
 
-                each_btmp_pair(&mut prev_btmp, &mut btmp, frame_index)
+                each_btmp_pair(&mut prev_btmp, &mut btmp, &mut integrator, frame_index)
             };
         };
 
         let mut prev_frame: Option<Video> = None;
 
-
         let mut receive_and_process_decoded_frames =
             |decoder: &mut ffmpeg::decoder::Video| -> Result<(), ffmpeg::Error> {
                 let mut decoded = Video::empty();
                 while decoder.receive_frame(&mut decoded).is_ok() {
+                    let mut rgb_frame = Video::empty();
+                    scaler.run(&decoded, &mut rgb_frame)?;
 
-
-                        let mut rgb_frame = Video::empty();
-                        scaler.run(&decoded, &mut rgb_frame)?;
-
-                        let begin_inst = Instant::now();
-                        let copy = rgb_frame.clone();
-                        let after_clone_inst = Instant::now();
+                    let begin_inst = Instant::now();
+                    let copy = rgb_frame.clone();
+                    let after_clone_inst = Instant::now();
 
                     if let Some(path) = prepare_file(frame_index, video_index.index) {
                         each_frame(&mut prev_frame, &mut rgb_frame, frame_index);
@@ -279,7 +276,6 @@ fn save_only_ppm(frame: &Video, path: String) -> std::result::Result<(), std::io
 }
 
 fn save_file_u24(frame: &Video, path: String) -> std::result::Result<(), std::io::Error> {
-
     let mut file = File::create(path)?;
     file.write_all(format!("P6\n{} {}\n255\n", frame.width(), frame.height()).as_bytes())?;
     file.write_all(frame.data(0))?;
